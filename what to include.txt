@@ -1,0 +1,4 @@
+1) Explanation of what other people have done with this dataset and why I'm using this method.
+2) Research on the product categorisation. Show the marketing principles used to categorise products.
+3) Explanation of model outputs and how they will impact the business (focus on product, strategy, operations and marketing people).
+4) Explanation of model performance and dissecting results (focus on data scientists).

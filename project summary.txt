@@ -1,0 +1,98 @@
+Retail Markdown Optimisation Engine
+
+A full end-to-end data science project simulating the pricing intelligence layer that powers platforms like Sparkbox — built on real UK retail transaction data.
+
+Dataset
+
+Online Retail II — UCI Machine Learning Repository
+
+Real transaction history from a UK-based online giftware and homeware retailer. Two Excel sheets covering December 2009 to December 2011, concatenated into ~1.06 million rows. Eight columns: InvoiceNo, StockCode, Description, Quantity, InvoiceDate, UnitPrice, CustomerID, Country. Licensed under CC BY 4.0. Sourced via Kaggle. The dataset covers homeware and giftware — categories Sparkbox explicitly serve alongside fashion — making it a commercially credible fit.
+
+Business problem
+
+The markdown timing problem
+
+Retailers commit to stock upfront and have a fixed season window (typically 12 weeks) to sell it. Waiting too long to discount results in end-of-season panic markdowns that destroy margin. Acting too early leaves revenue on the table. Merchandisers currently rely on rules of thumb applied uniformly across all products — ignoring that different products have fundamentally different price sensitivities. The question this project answers: given a product, its remaining stock, and weeks left in the season, what discount depth maximises revenue while guaranteeing full sell-through?
+
+Data cleaning — do this first, in this order
+
+Remove non-sales rows
+
+Filter out invoices starting with "C" (cancellations), non-product StockCodes (POST, D, M, DOT), zero or negative UnitPrices, and negative quantities. Filter to UK transactions only to remove cross-border pricing noise.
+
+Handle missing values
+
+~25% of rows have no CustomerID — keep them, they still carry valid price and quantity signals for elasticity modelling. Drop the ~1,454 rows with missing Description since category inference depends on it.
+
+EDA — what to explore
+
+Sales volume over time
+
+Weekly aggregated demand across all SKUs. Identify seasonality peaks (Christmas, gifting periods) and any structural data gaps. This sets the context for season window definitions.
+
+Price distribution per category
+
+Distribution of UnitPrice within each category to validate price tier splits (budget / mid / premium) using tertiles. Confirm that price variation actually exists within categories — this is what makes elasticity estimation possible.
+
+Price vs. demand scatterplots
+
+For the top 3–4 categories, plot weekly avg price against weekly demand on a log-log scale. A visible downward slope confirms an elasticity signal exists and justifies the modelling approach.
+
+Sell-through trajectories
+
+Plot cumulative units sold over a 12-week season window for a sample of SKUs per category. Show that sell-through rate varies widely across products — this is the problem the engine solves.
+
+Product segmentation
+
+Hybrid approach — retail categories + price tier
+
+Step 1: assign each SKU to one of 7 retail categories using priority-ordered keyword matching on Description (Candles & Lighting, Kitchen & Dining, Home Decor, Storage & Organisation, Seasonal & Gifting, Stationery & Paper, Textiles). Step 2: within each category, split into three price tiers (budget / mid / premium) using tertiles of historical UnitPrice per category. This produces ~15–20 behavioural segments. Rationale: price tier is the single strongest predictor of elasticity — it captures how psychologically committed the customer is to the purchase. Retail category adds commercial interpretability that pure clustering cannot.
+Candles & Lighting Kitchen & Dining Home Decor Seasonal & Gifting Storage & Organisation Stationery & Paper Textiles
+
+ML — two-component approach
+
+Component 1 — Elasticity estimation (ML)
+
+Fit a log-log regression per segment: log(weekly_quantity) = α + β × log(unit_price) + controls. The coefficient β is the price elasticity. Primary model: OLS log-log regression. Comparison model: XGBoost on the same features. OLS is preferred for the optimiser because it extrapolates cleanly outside the training price range — tree models cannot. XGBoost is included as a predictive accuracy benchmark.
+
+Component 2 — Markdown optimiser (maths)
+
+A constrained optimisation using scipy.optimize. Inputs: units remaining, weeks left in season, current price, segment elasticity β. Objective: maximise total revenue from remaining stock. Constraint: sell all units by end of season. Output: recommended discount depth as a percentage. This is not an ML model — it uses the ML output as a parameter.
+
+Feature engineering — none of these exist in the raw data
+
+Markdown depth
+
+For each SKU, define original price as the historical maximum UnitPrice. Markdown depth = (original_price − current_price) / original_price. The key elasticity feature.
+
+Weekly demand per SKU
+
+Aggregate Quantity by StockCode and week. The demand time series that feeds the log-log regression.
+
+Sell-through rate
+
+Proxy initial stock from peak weekly sales × weeks active. Cumulative units sold ÷ initial stock = sell-through %. Acknowledged as an estimate in the README since no stock column exists.
+
+Season features
+
+Define a 12-week season window from each SKU's first sale. Engineer week_number (1–12) and weeks_remaining = 12 − week_number as inputs to the optimiser.
+
+Walk-forward cross-validation
+
+Expanding window, run independently per segment
+
+Validate the elasticity model's ability to predict demand in future weeks from price. Run per segment (not pooled). Each fold: train on weeks 1–N, validate on weeks N+1 to N+4 (4-week horizon, matching realistic markdown decision lookahead). Expand training window each fold. Metric: MAPE on demand prediction — percentage-based so it's comparable across segments with very different sales volumes. Report average MAPE across all segments as the headline result.
+
+Final output
+
+Streamlit dashboard
+
+EDA visuals, model performance metrics, and a live markdown recommendation tool — input a product segment + weeks remaining + units left, get a recommended discount and projected revenue
+
+GitHub repository
+
+Clean folder structure with separate notebooks for cleaning, EDA, modelling, and optimisation. Version controlled from day one using Git
+
+README file
+
+Business problem framing, methodology walkthrough, results, and honest limitations — written to be understood by a non-technical Sparkbox hiring manager
