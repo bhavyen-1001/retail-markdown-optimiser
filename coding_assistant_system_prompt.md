@@ -193,7 +193,7 @@ Produce the following in `03_eda_pre_segmentation.ipynb`:
 - **Weekly sales volume over time** — aggregated across all SKUs. Identify seasonality peaks (Christmas, gifting periods) and structural data gaps. This sets the context for season window definitions.
 - **Price distribution across all SKUs** — histogram and box plot of `UnitPrice`. Show the wide spread and the presence of multiple price clusters.
 - **Price vs. demand scatterplot (log-log scale)** — aggregate weekly at the SKU level and plot log(weekly_quantity) vs. log(unit_price). Show that there is no coherent signal when all products are pooled — the slope is noisy and unreliable.
-- **Sell-through trajectory heterogeneity** — plot cumulative units sold over a 12-week season window for a sample of SKUs. Show that sell-through rate varies widely across products. This is the problem the engine solves.
+- **Demand trajectory heterogeneity** — plot cumulative units sold over a 12-week season window for a sample of SKUs. The rate at which products deplete their sales may vary widely — some products slow sharply after peak, others do not. This could be the inventory clearance problem the optimiser solves.
 - **Closing argument cell** — a markdown cell summarising what the EDA revealed and why it justifies segmenting the data before modelling.
 
 ---
@@ -238,7 +238,7 @@ Once Bhavyen has confirmed both the product category structure and the price tie
 The following are illustrative examples only — the actual implementation must reflect the categories and method confirmed in Steps A and B:
 
 ```python
-# ⚠️ EXAMPLE ONLY — categories and keywords must be confirmed with Bhavyen first
+# EXAMPLE ONLY — categories and keywords must be confirmed with Bhavyen first
 def assign_category(description: str) -> str:
     """Assigns a retail category based on keyword matching in the product description."""
     desc = description.upper()
@@ -249,14 +249,14 @@ def assign_category(description: str) -> str:
 ```
 
 ```python
-# ⚠️ EXAMPLE ONLY — method must be confirmed with Bhavyen first
+# EXAMPLE ONLY — method must be confirmed with Bhavyen first
 df['price_tier'] = df.groupby('category')['UnitPrice'].transform(
     lambda x: pd.qcut(x, q=3, labels=['budget', 'mid', 'premium'], duplicates='drop')
 )
 ```
 
 ```python
-# ⚠️ EXAMPLE ONLY
+# EXAMPLE ONLY
 df['segment'] = df['category'] + ' | ' + df['price_tier'].astype(str)
 # Produces labels like "Candles & Lighting | budget"
 ```
@@ -273,26 +273,27 @@ Produce the following in `05_eda_post_segmentation.ipynb`:
 - **Price distribution per category** — box plots of `UnitPrice` within each category. Confirm that price variation exists within categories — this is what makes elasticity estimation possible.
 - **Price tier distribution per category** — confirm tertiles are roughly balanced within each category.
 - **Price vs. demand scatterplots per category (log-log scale)** — for the top 3–4 categories, plot weekly average price vs. weekly demand. A visible downward slope confirms an elasticity signal exists within the segment.
-- **Within-segment sell-through trajectories** — plot cumulative units sold over a 12-week season window for a sample of SKUs per segment. Show that sell-through rate is now more coherent within segments than across all products.
+- **Within-segment demand trajectories** — plot cumulative units sold over a 12-week season window for a sample of SKUs per segment. The demand depletion behaviour could be more coherent within segments than across all products pooled together.
 - **Closing argument cell** — a markdown cell confirming that the segments exhibit within-segment coherence and are suitable for individual elasticity modelling.
 
 ---
 
 ## Stage 7 — Feature engineering — implement in `src/features.py`
 
-None of the following features exist in the raw data. Engineer all of them:
+The following features are required as inputs to the OLS elasticity models in Stage 8. All are derived from the cleaned, categorised dataset.
 
-**Markdown depth**
-For each SKU, define original price as the historical maximum `UnitPrice`. Markdown depth = `(original_price − current_price) / original_price`. This is the key elasticity feature.
+**Log-transformed price**
+`log_price = log(UnitPrice)` per transaction. Required as the regressor in the log-log OLS specification.
 
-**Weekly demand per SKU**
-Aggregate `Quantity` by `StockCode` and ISO week. The demand time series that feeds the log-log regression.
+**Weekly demand per segment**
+Aggregate `Quantity` by `segment` and ISO week to get `weekly_quantity`, then compute `log_weekly_qty = log(weekly_quantity)`. This is the OLS target variable. Aggregation is at segment level (category × price tier) — not SKU level — because the elasticity model is fitted per segment in Stage 8.
 
-**Sell-through rate**
-Proxy initial stock from peak weekly sales × weeks active. Cumulative units sold ÷ initial stock = sell-through %. Acknowledge this as an estimate in the README — no stock column exists in the raw data.
+**ISO week number**
+Extract ISO week number (1–52) from `InvoiceDate`. Used as the `week_number` control variable in Model 2. Captures where a week falls in the calendar year, which is the correct basis for controlling seasonal demand variation.
 
-**Season features**
-Define a 12-week season window from each SKU's first sale. Engineer `week_number` (1–12) and `weeks_remaining = 12 − week_number` as inputs to the optimiser.
+**Q4 flag**
+`is_q4 = 1` if ISO week number is between 40 and 52 (October–December), else 0. Controls for the Christmas demand spike in Model 2.
+
 
 ---
 
@@ -324,7 +325,7 @@ Report β₁ and β₂ side by side per segment. A material difference is eviden
 ### Weekly aggregation (before fitting)
 
 ```python
-# ⚠️ EXAMPLE ONLY — adapt to your actual column names
+# EXAMPLE ONLY — adapt to your actual column names
 weekly = (df.groupby(['segment', 'week', 'year'])
            .agg(weekly_qty=('Quantity', 'sum'),
                 unit_price=('UnitPrice', 'median'),
@@ -357,7 +358,7 @@ For each segment, compute the 95% confidence interval on β₂. Flag segments wh
 Save each segment's elasticity results as a dictionary:
 
 ```python
-# ⚠️ EXAMPLE ONLY — illustrates the expected output structure
+# EXAMPLE ONLY — illustrates the expected output structure
 {
   'segment': 'Candles & Lighting | budget',
   'beta_uncontrolled': -0.81,
@@ -425,7 +426,7 @@ Implement the closed-form solution first, then wrap with `scipy.optimize.minimiz
 ### Function signature
 
 ```python
-# ⚠️ EXAMPLE ONLY — illustrates the expected function signature
+# EXAMPLE ONLY — illustrates the expected function signature
 def recommend_markdown(
     units_remaining: int,
     weeks_remaining: int,
@@ -444,7 +445,7 @@ def recommend_markdown(
 The function should return a dictionary:
 
 ```python
-# ⚠️ EXAMPLE ONLY — illustrates the expected return value structure
+# EXAMPLE ONLY — illustrates the expected return value structure
 {
   'recommended_discount_pct': 22.5,
   'new_price': 14.02,
@@ -511,7 +512,7 @@ Additional principles from the DataCamp dashboard design framework:
 *Top (decision-relevant):*
 - Input widgets: segment selector (dropdown), units remaining (number input), weeks remaining (slider 1–12), current price (number input)
 - On button click: call `recommend_markdown()` from `src/optimiser.py`
-- Output: recommendation card showing discount %, new price, projected revenue, sell-through status
+- Output: recommendation card showing discount %, new price, projected revenue, and whether the recommended discount is sufficient to clear remaining stock within the given time window.
 - Colour-coded signal: green (≤ 20% discount), amber (20–40%), red (> 40% — flag as high commercial risk)
 - If segment is low-confidence or elasticity is insignificant: surface a clear caveat banner before the recommendation — do not suppress the output, but do not let users miss the warning
 
@@ -566,6 +567,7 @@ outputs/models/*.pkl
 - No hardcoded file paths — use `pathlib.Path` throughout
 - No hardcoded constants inline — define them at the top of each module in SCREAMING_SNAKE_CASE
 - Each notebook must begin with a **markdown cell** explaining the purpose of that notebook in one paragraph, written for a non-technical reader
+- No emojis in the code at all
 
 ---
 
