@@ -79,17 +79,17 @@ markdown-optimisation/
 ├── notebooks/
 │   ├── 01_initial_data_look.ipynb
 │   ├── 02_data_cleaning.ipynb
-│   ├── 03_eda_pre_segmentation.ipynb
-│   ├── 04_segmentation.ipynb
-│   ├── 05_eda_post_segmentation.ipynb
+│   ├── 03_eda_pre_categorisation.ipynb
+│   ├── 04_product_categorisation.ipynb
+│   ├── 05_eda_post_categorisation.ipynb
 │   ├── 06_feature_engineering.ipynb
 │   ├── 07_elasticity_modelling.ipynb
 │   └── 08_optimisation_engine.ipynb
 │
 ├── src/
 │   ├── __init__.py
-│   ├── cleaning.py                 # all data cleaning logic
-│   ├── segmentation.py             # category + price tier assignment
+│   ├── data_cleaning.py                 # all data cleaning logic
+│   ├── product_categorisation.py             # category + price tier assignment
 │   ├── features.py                 # feature engineering functions
 │   ├── elasticity.py               # OLS model fitting, diagnostics, walk-forward CV
 │   ├── optimiser.py                # scipy markdown optimisation engine
@@ -167,7 +167,7 @@ Do not present all cleaning steps at once — go through them one by one.
 
 ### Step B — write the code only after all steps are confirmed
 
-Once all cleaning steps are confirmed by Bhavyen, implement them in `src/cleaning.py` as a single `clean_data(df)` function.
+Once all cleaning steps are confirmed by Bhavyen, implement them in `src/data_cleaning.py` as a single `clean_data(df)` function.
 
 The following are known starting points — treat these as a checklist to validate against the initial data look, not as a finalised spec:
 
@@ -184,11 +184,11 @@ Regardless of which steps are finalised, always log the row count before and aft
 
 ---
 
-## Stage 4 — EDA pre-segmentation
+## Stage 4 — EDA pre-categorisation
 
 This notebook's purpose is to show — through evidence — *why* segmentation is necessary. The narrative it creates is: "The data is highly heterogeneous. A single model fitted to all products would be meaningless. We need to segment."
 
-Produce the following in `03_eda_pre_segmentation.ipynb`:
+Produce the following in `03_eda_pre_categorisation.ipynb`:
 
 - **Weekly sales volume over time** — aggregated across all SKUs. Identify seasonality peaks (Christmas, gifting periods) and structural data gaps. This sets the context for season window definitions.
 - **Price distribution across all SKUs** — histogram and box plot of `UnitPrice`. Show the wide spread and the presence of multiple price clusters.
@@ -233,7 +233,7 @@ Then ask Bhavyen to confirm the approach before writing any code.
 
 ### Step C — write the code only after both approaches are confirmed
 
-Once Bhavyen has confirmed both the product category structure and the price tier approach, implement them in `src/segmentation.py`.
+Once Bhavyen has confirmed both the product category structure and the price tier approach, implement them in `src/product_categorisation.py`.
 
 The following are illustrative examples only — the actual implementation must reflect the categories and method confirmed in Steps A and B:
 
@@ -263,11 +263,11 @@ df['segment'] = df['category'] + ' | ' + df['price_tier'].astype(str)
 
 ---
 
-## Stage 6 — EDA post-segmentation
+## Stage 6 — EDA post-categorisation
 
 This notebook's purpose is to validate that the segments are coherent and to explore within-segment behaviour. The narrative: "After segmentation, within-segment price sensitivity is now visible and modelable."
 
-Produce the following in `05_eda_post_segmentation.ipynb`:
+Produce the following in `05_eda_post_categorisation.ipynb`:
 
 - **Category distribution** — bar chart of SKU count and revenue share per category. Confirm no single category dominates to the point of making others unmodelable.
 - **Price distribution per category** — box plots of `UnitPrice` within each category. Confirm that price variation exists within categories — this is what makes elasticity estimation possible.
@@ -278,31 +278,54 @@ Produce the following in `05_eda_post_segmentation.ipynb`:
 
 ---
 
-## Stage 7 — Feature engineering — implement in `src/features.py`
+## Stage 7 — Feature engineering
 
-The following features are required as inputs to the OLS elasticity models in Stage 8. All are derived from the cleaned, categorised dataset.
+### Notebook: `06_feature_engineering.ipynb`
 
-**Log-transformed price**
-`log_price = log(UnitPrice)` per transaction. Required as the regressor in the log-log OLS specification.
+Load the full pipeline: raw CSV → `clean_data()` from `data_cleaning.py` → `categorise_products()` from `product_categorisation.py`.
 
-**Weekly demand per segment**
-Per-transaction features: Add `log_price = log(UnitPrice)`, `iso_week_number` (ISO week 1–52 from `InvoiceDate`), and `is_q4` (1 if iso_week_number between 40–52, else 0) as columns on the transaction-level DataFrame. Segment-week aggregation and `log_weekly_qty` computation happen in `elasticity.py` during model fitting, not here.
+For each feature, the notebook must contain three things in order:
+1. A markdown cell explaining what the feature is and why it is needed in the OLS model
+2. Code to compute it on the transaction-level DataFrame
+3. A visualisation confirming it behaves as expected
 
-**ISO week number**
-Extract ISO week number (1–52) from `InvoiceDate`. Used as the `week_number` control variable in Model 2. Captures where a week falls in the calendar year, which is the correct basis for controlling seasonal demand variation.
+Required visualisations per feature:
 
-**Q4 flag**
-`is_q4 = 1` if ISO week number is between 40 and 52 (October–December), else 0. Controls for the Christmas demand spike in Model 2.
+- **log_price**: histogram of log(UnitPrice) by category. Confirms the log transformation produces an approximately symmetric distribution within segments, justifying the log-log OLS specification.
 
----
+- **iso_week_number**: bar chart of transaction volume by ISO week across the full dataset. Confirms data spans the full calendar year and makes the Q4 spike visually obvious — this directly motivates is_q4.
 
-The following features have been removed:
+- **is_q4**: stacked bar or proportion chart showing Q4 vs non-Q4 transaction share per category. Confirms the flag correctly captures the Christmas demand concentration.
 
-- **Markdown depth** is not pre-engineered. It is an output concept — the recommended discount depth `d*` is what the optimiser calculates and returns at runtime. Deriving a reliable "original price" per SKU is not possible from this dataset: price variation reflects bulk discount tiers, not markdown history, making the historical maximum an unreliable baseline.
+Close the notebook with a markdown cell confirming the feature set is finalised and matches what `features.py` will implement.
 
-- **Sell-through rate** is not engineered. No inventory column exists in the raw data. Any proxy (e.g. peak weekly sales × weeks active) would be methodologically unsound and misleading to a merchandiser who knows their actual stock positions. Units remaining is a user input to the optimiser at runtime.
+### Script: `src/features.py`
 
-- **weeks_remaining** is not a dataset feature. It is entered by the merchandiser at runtime in the dashboard.
+Implement only after the notebook confirms the features are correct.
+Adds the following columns to the transaction-level DataFrame:
+
+- `log_price` — `log(UnitPrice)`
+- `iso_week_number` — ISO week (1–52) from `InvoiceDate`
+- `is_q4` — 1 if iso_week_number is 40–52, else 0
+
+Segment-week aggregation and `log_weekly_qty` are computed in `elasticity.py` during model fitting, not here.
+
+Expose a single public function. For example:
+
+```python
+# EXAMPLE ONLY
+def build_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Adds log_price, iso_week_number, and is_q4 columns to the
+    transaction-level DataFrame.
+
+    Args:
+        df: Cleaned, categorised DataFrame from product_categorisation.py.
+
+    Returns:
+        DataFrame with three additional columns.
+    """
+```
 
 ---
 
@@ -381,7 +404,8 @@ Save each segment's elasticity results as a dictionary:
   'durbin_watson': 1.94,
   'breusch_pagan_pvalue': 0.12,
   'is_significant': True,    # True if p-value < 0.05
-  'is_high_confidence': True # True if ci_width <= 1.0
+  'is_high_confidence': True, # True if ci_width <= 1.0
+  'baseline_weekly_demand': 87.3 # median weekly qty for this segment
 }
 ```
 
