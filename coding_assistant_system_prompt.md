@@ -193,7 +193,7 @@ Produce the following in `03_eda_pre_segmentation.ipynb`:
 - **Weekly sales volume over time** — aggregated across all SKUs. Identify seasonality peaks (Christmas, gifting periods) and structural data gaps. This sets the context for season window definitions.
 - **Price distribution across all SKUs** — histogram and box plot of `UnitPrice`. Show the wide spread and the presence of multiple price clusters.
 - **Price vs. demand scatterplot (log-log scale)** — aggregate weekly at the SKU level and plot log(weekly_quantity) vs. log(unit_price). Show that there is no coherent signal when all products are pooled — the slope is noisy and unreliable.
-- **Demand trajectory heterogeneity** — plot cumulative units sold over a 12-week season window for a sample of SKUs. The rate at which products deplete their sales may vary widely — some products slow sharply after peak, others do not. This could be the inventory clearance problem the optimiser solves.
+- **Demand trajectory heterogeneity** — plot cumulative units sold over a 12-week season window for a sample of SKUs. The rate at which products deplete their sales may vary widely — some products slow sharply after peak, others do not. This is the inventory clearance problem the optimiser solves.
 - **Closing argument cell** — a markdown cell summarising what the EDA revealed and why it justifies segmenting the data before modelling.
 
 ---
@@ -273,7 +273,7 @@ Produce the following in `05_eda_post_segmentation.ipynb`:
 - **Price distribution per category** — box plots of `UnitPrice` within each category. Confirm that price variation exists within categories — this is what makes elasticity estimation possible.
 - **Price tier distribution per category** — confirm tertiles are roughly balanced within each category.
 - **Price vs. demand scatterplots per category (log-log scale)** — for the top 3–4 categories, plot weekly average price vs. weekly demand. A visible downward slope confirms an elasticity signal exists within the segment.
-- **Within-segment demand trajectories** — plot cumulative units sold over a 12-week season window for a sample of SKUs per segment. The demand depletion behaviour could be more coherent within segments than across all products pooled together.
+- **Within-segment demand trajectories** — plot cumulative units sold over a 12-week season window for a sample of SKUs per segment. Show that demand depletion behaviour is more coherent within segments than across all products pooled together.
 - **Closing argument cell** — a markdown cell confirming that the segments exhibit within-segment coherence and are suitable for individual elasticity modelling.
 
 ---
@@ -286,7 +286,7 @@ The following features are required as inputs to the OLS elasticity models in St
 `log_price = log(UnitPrice)` per transaction. Required as the regressor in the log-log OLS specification.
 
 **Weekly demand per segment**
-Aggregate `Quantity` by `segment` and ISO week to get `weekly_quantity`, then compute `log_weekly_qty = log(weekly_quantity)`. This is the OLS target variable. Aggregation is at segment level (category × price tier) — not SKU level — because the elasticity model is fitted per segment in Stage 8.
+Per-transaction features: Add `log_price = log(UnitPrice)`, `iso_week_number` (ISO week 1–52 from `InvoiceDate`), and `is_q4` (1 if iso_week_number between 40–52, else 0) as columns on the transaction-level DataFrame. Segment-week aggregation and `log_weekly_qty` computation happen in `elasticity.py` during model fitting, not here.
 
 **ISO week number**
 Extract ISO week number (1–52) from `InvoiceDate`. Used as the `week_number` control variable in Model 2. Captures where a week falls in the calendar year, which is the correct basis for controlling seasonal demand variation.
@@ -294,6 +294,15 @@ Extract ISO week number (1–52) from `InvoiceDate`. Used as the `week_number` c
 **Q4 flag**
 `is_q4 = 1` if ISO week number is between 40 and 52 (October–December), else 0. Controls for the Christmas demand spike in Model 2.
 
+---
+
+The following features have been removed:
+
+- **Markdown depth** is not pre-engineered. It is an output concept — the recommended discount depth `d*` is what the optimiser calculates and returns at runtime. Deriving a reliable "original price" per SKU is not possible from this dataset: price variation reflects bulk discount tiers, not markdown history, making the historical maximum an unreliable baseline.
+
+- **Sell-through rate** is not engineered. No inventory column exists in the raw data. Any proxy (e.g. peak weekly sales × weeks active) would be methodologically unsound and misleading to a merchandiser who knows their actual stock positions. Units remaining is a user input to the optimiser at runtime.
+
+- **weeks_remaining** is not a dataset feature. It is entered by the merchandiser at runtime in the dashboard.
 
 ---
 
